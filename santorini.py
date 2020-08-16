@@ -70,14 +70,28 @@ def randomPlayerWithValidation(heights, pieces, setUp):
         moveDirs = validMoves(heights, pieces, x, y)
         shuffle(moveDirs)
         for moveDir in moveDirs:
-            moveDir = sample(moveDirs, 1)[0]
             buildDirs = validBuilds(heights, pieces, x + moveDir[0], y + moveDir[1], pieceName)
             if len(buildDirs) > 0:
                 return pieceName, moveDir, sample(buildDirs, 1)[0]
     # No valid moves.
     return None, None, None
 
-ALL_PLAYERS = [randomPlayer, randomPlayer, randomPlayerWithValidation]
+def myGreatPlayer(heights, pieces, setUp):
+    if setUp:
+        if pieces[2][2] == EMPTY:
+            return 2, 2
+        return sample(unoccupiedSpaces(pieces), 1)[0]
+    pieceNames = list(PIECES)
+    for pieceName in pieceNames:
+        x, y = findPiecePos(pieces, pieceName)
+        moveDirs = validMoves(heights, pieces, x, y)
+        for moveDir in moveDirs:
+            destX, destY = x + moveDir[0], y + moveDir[1]
+            if heights[destY][destX] == MAX_HEIGHT - 1:
+                return pieceName, moveDir, DIRS[0]
+    return randomPlayerWithValidation(heights, pieces, setUp)
+
+ALL_PLAYERS = [randomPlayer, randomPlayerWithValidation, myGreatPlayer]
 
 ### Game Simulator Code ###
 
@@ -182,4 +196,5 @@ for gameIndex in range(100):
     
     winner = playGame(players)
     score[playerIndexes[winner]] += 1
-print(score)
+for playerIndex, score in score.most_common():
+    print('{:5d} {}'.format(score, ALL_PLAYERS[playerIndex].__name__))
