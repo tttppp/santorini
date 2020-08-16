@@ -1,7 +1,7 @@
 #!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 
-from random import randrange, sample
+from random import randrange, sample, shuffle
 from collections import Counter, defaultdict
 
 DIRS = [(1,1),(1,0),(1,-1),(0,1),(0,-1),(-1,1),(-1,0),(-1,-1)]
@@ -39,7 +39,20 @@ def validMoves(heights, pieces, x, y):
             continue
         options.append(moveDir)
     return options
-    
+
+def validBuilds(heights, pieces, x, y, pieceName):
+    options = []
+    for buildDir in DIRS:
+        destX, destY = x + buildDir[0], y + buildDir[1]
+        if destX < 0 or destX > 4 or destY < 0 or destY > 4:
+            continue
+        if pieces[destY][destX] not in [EMPTY, pieceName]:
+            continue
+        if heights[destY][destX] == MAX_HEIGHT:
+            continue
+        options.append(buildDir)
+    return options
+
 ### AI Algorithms ###
 
 def randomPlayer(heights, pieces, setUp):
@@ -50,11 +63,19 @@ def randomPlayer(heights, pieces, setUp):
 def randomPlayerWithValidation(heights, pieces, setUp):
     if setUp:
         return sample(unoccupiedSpaces(pieces), 1)[0]
-    pieceName = sample(PIECES, 1)[0]
-    x, y = findPiecePos(pieces, pieceName)
-    moveDir = sample(validMoves(heights, pieces, x, y), 1)[0]
-    buildDir = sample(DIRS, 1)[0]
-    return pieceName, moveDir, buildDir
+    pieceNames = list(PIECES)
+    shuffle(pieceNames)
+    for pieceName in pieceNames:
+        x, y = findPiecePos(pieces, pieceName)
+        moveDirs = validMoves(heights, pieces, x, y)
+        shuffle(moveDirs)
+        for moveDir in moveDirs:
+            moveDir = sample(moveDirs, 1)[0]
+            buildDirs = validBuilds(heights, pieces, x + moveDir[0], y + moveDir[1], pieceName)
+            if len(buildDirs) > 0:
+                return pieceName, moveDir, sample(buildDirs, 1)[0]
+    # No valid moves.
+    return None, None, None
 
 ALL_PLAYERS = [randomPlayer, randomPlayer, randomPlayerWithValidation]
 
@@ -107,7 +128,8 @@ def move(heights, pieces, x, y, moveDir):
         raise IllegalMove('Trying to move off board')
     if pieces[destY][destX] != EMPTY:
         raise IllegalMove('Destination not empty')
-    # TODO Illegal move if height increases by 2 or more.
+    if heights[destY][destX] > heights[y][x] + 2:
+        raise IllegalMove('Trying to jump too high')
     pieces[destY][destX] = piece
     return destX, destY
 
