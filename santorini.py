@@ -3,6 +3,7 @@
 
 from random import randrange, sample, shuffle
 from collections import Counter, defaultdict
+from itertools import combinations
 
 DIRS = [(1,1),(1,0),(1,-1),(0,1),(0,-1),(-1,1),(-1,0),(-1,-1)]
 PIECES = ['A', 'B']
@@ -192,11 +193,15 @@ def playGame(players):
 
 score = Counter()
 
-for gameIndex in range(100):
-    playerIndexes = [randrange(len(ALL_PLAYERS)), randrange(len(ALL_PLAYERS))]
-    players = [ALL_PLAYERS[playerIndexes[0]], ALL_PLAYERS[playerIndexes[1]]]
-    
-    winner = playGame(players)
-    score[playerIndexes[winner]] += 1
-for playerIndex, score in score.most_common():
-    print('{:5d} {}'.format(score, ALL_PLAYERS[playerIndex].__name__))
+for playerPairing in combinations(range(len(ALL_PLAYERS)), 2):
+    playerIndexes = list(playerPairing)
+    for gameIndex in range(100):
+        shuffle(playerIndexes)
+        players = [ALL_PLAYERS[playerIndexes[0]], ALL_PLAYERS[playerIndexes[1]]]
+        
+        winner = playGame(players)
+        loser = 1 - winner
+        score[(playerIndexes[winner], playerIndexes[loser])] += 1
+
+for playerIndexes, score in score.most_common():
+    print('{:5d} {} beats {}'.format(score, ALL_PLAYERS[playerIndexes[0]].__name__, ALL_PLAYERS[playerIndexes[1]].__name__))
