@@ -81,15 +81,27 @@ def myGreatPlayer(heights, pieces, setUp):
     if setUp:
         if pieces[2][2] == EMPTY:
             return 2, 2
-        return sample(unoccupiedSpaces(pieces), 1)[0]
-    pieceNames = list(PIECES)
-    for pieceName in pieceNames:
-        x, y = findPiecePos(pieces, pieceName)
-        moveDirs = validMoves(heights, pieces, x, y)
-        for moveDir in moveDirs:
-            destX, destY = x + moveDir[0], y + moveDir[1]
-            if heights[destY][destX] == MAX_HEIGHT - 1:
-                return pieceName, moveDir, DIRS[0]
+        dest = (0, 0)
+        while dest[0] in [0, 4] or dest[1] in [0, 4]:
+            dest = sample(unoccupiedSpaces(pieces), 1)[0]
+        return dest
+    for targetHeight in reversed(range(MAX_HEIGHT)):
+        pieceNames = list(PIECES)
+        for pieceName in pieceNames:
+            x, y = findPiecePos(pieces, pieceName)
+            if heights[y][x] < targetHeight - 1:
+                continue
+            moveDirs = validMoves(heights, pieces, x, y)
+            for moveDir in moveDirs:
+                destX, destY = x + moveDir[0], y + moveDir[1]
+                if heights[destY][destX] == targetHeight:
+                    buildDirs = validBuilds(heights, pieces, x + moveDir[0], y + moveDir[1], pieceName)
+                    if len(buildDirs) == 0:
+                        # Ignore situations with no valid builds if we've won.
+                        if heights[destY][destX] == MAX_HEIGHT - 1:
+                            return pieceName, moveDir, DIRS[0]
+                        continue
+                    return pieceName, moveDir, buildDirs[0]
     return randomPlayerWithValidation(heights, pieces, setUp)
 
 ALL_PLAYERS = [randomPlayer, randomPlayerWithValidation, myGreatPlayer]
