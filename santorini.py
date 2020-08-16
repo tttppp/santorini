@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from random import randrange, sample
-from collections import Counter
+from collections import Counter, defaultdict
 
 DIRS = [(1,1),(1,0),(1,-1),(0,1),(0,-1),(-1,1),(-1,0),(-1,-1)]
 PIECES = ['A', 'B']
@@ -19,6 +19,21 @@ ALL_PLAYERS = [randomPlayer, randomPlayer]
 
 class IllegalMove(Exception):
     pass
+
+def displayBoard(heights, pieces):
+    print('+' + '-'*15 + '+')
+    for y in range(5):
+        lines = defaultdict(str)
+        for x in range(5):
+            heightChar = ' .+#@'[heights[y][x]]
+            pieceChar = {EMPTY: EMPTY, (0,0): 'a', (0,1): 'b', (1,0): 'y', (1,1): 'z'}[pieces[y][x]]
+            lines[0] += heightChar * 3
+            lines[1] += heightChar  + pieceChar + heightChar
+            lines[2] += heightChar * 3
+        for i in range(3):
+            print('|' + lines[i] + '|')
+    print('+' + '-'*15 + '+\n')
+            
 
 def convertPieces(playerIndex, pieces):
     outPieces = [[] for i in range(5)]
@@ -41,7 +56,7 @@ def findPiece(pieces, playerIndex, pieceName):
                 return (x, y)
     raise IllegalMove('Piece not found')
 
-def move(pieces, x, y, moveDir):
+def move(heights, pieces, x, y, moveDir):
     piece = pieces[y][x]
     pieces[y][x] = EMPTY
     destX, destY = x + moveDir[0], y + moveDir[1]
@@ -49,6 +64,7 @@ def move(pieces, x, y, moveDir):
         raise IllegalMove('Trying to move off board')
     if pieces[destY][destX] != EMPTY:
         raise IllegalMove('Destination not empty')
+    # TODO Illegal move if height increases by 2 or more.
     pieces[destY][destX] = piece
     return destX, destY
 
@@ -80,7 +96,7 @@ def playGame(players):
                 pieceName, moveDir, buildDir = player(heights, pieces, False)
                 try:
                     x, y = findPiece(pieces, playerIndex, pieceName)
-                    x, y = move(pieces, x, y, moveDir)
+                    x, y = move(heights, pieces, x, y, moveDir)
                     if heights[y][x] == MAX_HEIGHT - 1:
                         return playerIndex
                     build(heights, pieces, x, y, buildDir)
@@ -89,9 +105,8 @@ def playGame(players):
             turnNumber += 1
         return 0
     finally:
-        # Uncomment for debugging information.
-        #print(heights)
-        #print(pieces)
+        # Print end game position.
+        displayBoard(heights, pieces)
         pass
 
 score = Counter()
