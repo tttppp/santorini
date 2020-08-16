@@ -162,6 +162,7 @@ def playGame(players):
     pieces = [[EMPTY] * 5 for i in range(5)]
     
     try:
+        # Place pieces on the board.
         for playerIndex, player in enumerate(players):
             for pieceNumber in range(2):
                 x, y = player(heights, convertPieces(playerIndex, pieces), True)
@@ -169,6 +170,7 @@ def playGame(players):
                     return 1 - playerIndex
                 pieces[y][x] = (playerIndex, pieceNumber)
         
+        # Play the game (the AI player can pick a piece to move, a move direction and a build direction).
         turnNumber = 0
         while True:
             for playerIndex, player in enumerate(players):
