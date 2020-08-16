@@ -10,12 +10,55 @@ OPPONENT = 'O'
 EMPTY = ' '
 MAX_HEIGHT = 4
 
+### AI Helper Methods ###
+
+class IllegalState(Exception):
+    pass
+
+def unoccupiedSpaces(pieces):
+    return [(x,y) for x in range(5) for y in range(5) if pieces[y][x] == EMPTY]
+
+def findPiecePos(pieces, pieceName):
+    for y in range(5):
+        for x in range(5):
+            if pieces[y][x] == pieceName:
+                return x, y
+    print(pieces)
+    print(pieceName)
+    raise IllegalState('Can\'t find piece on board.')
+
+def validMoves(heights, pieces, x, y):
+    options = []
+    for moveDir in DIRS:
+        destX, destY = x + moveDir[0], y + moveDir[1]
+        if destX < 0 or destX > 4 or destY < 0 or destY > 4:
+            continue
+        if pieces[destY][destX] != EMPTY:
+            continue
+        if heights[destY][destX] > heights[y][x] + 2:
+            continue
+        options.append(moveDir)
+    return options
+    
+### AI Algorithms ###
+
 def randomPlayer(heights, pieces, setUp):
     if setUp:
         return randrange(5), randrange(5)
     return sample(PIECES, 1)[0], sample(DIRS, 1)[0], sample(DIRS, 1)[0]
 
-ALL_PLAYERS = [randomPlayer, randomPlayer]
+def randomPlayerWithValidation(heights, pieces, setUp):
+    if setUp:
+        return sample(unoccupiedSpaces(pieces), 1)[0]
+    pieceName = sample(PIECES, 1)[0]
+    x, y = findPiecePos(pieces, pieceName)
+    moveDir = sample(validMoves(heights, pieces, x, y), 1)[0]
+    buildDir = sample(DIRS, 1)[0]
+    return pieceName, moveDir, buildDir
+
+ALL_PLAYERS = [randomPlayer, randomPlayer, randomPlayerWithValidation]
+
+### Game Simulator Code ###
 
 class IllegalMove(Exception):
     pass
@@ -41,11 +84,11 @@ def convertPieces(playerIndex, pieces):
         for x in range(5):
             piece = pieces[y][x]
             if piece == EMPTY:
-                outPieces.append(EMPTY)
+                outPieces[y].append(EMPTY)
             elif piece[0] == playerIndex:
-                outPieces.append(PIECES[piece[1]])
+                outPieces[y].append(PIECES[piece[1]])
             else:
-                outPieces.append(OPPONENT)
+                outPieces[y].append(OPPONENT)
     return outPieces
 
 def findPiece(pieces, playerIndex, pieceName):
@@ -93,7 +136,7 @@ def playGame(players):
         turnNumber = 0
         while True:
             for playerIndex, player in enumerate(players):
-                pieceName, moveDir, buildDir = player(heights, pieces, False)
+                pieceName, moveDir, buildDir = player(heights, convertPieces(playerIndex, pieces), False)
                 try:
                     x, y = findPiece(pieces, playerIndex, pieceName)
                     x, y = move(heights, pieces, x, y, moveDir)
