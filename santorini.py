@@ -35,6 +35,15 @@ def findPiecePos(pieces, pieceName):
     print(pieceName)
     raise IllegalState('Can\'t find piece on board.')
 
+def getOpponentCoordinates(pieces):
+    """Return a list containing the coordinates of the opponent's pieces."""
+    opponentsCoordinates = []
+    for y in range(5):
+        for x in range(5):
+            if pieces[y][x] == OPPONENT:
+                opponentsCoordinates.append((x, y))
+    return opponentsCoordinates
+
 def validMoves(heights, pieces, x, y):
     """Return a list of the directions that are valid for moving."""
     options = []
@@ -165,7 +174,34 @@ def buildAway(heights, pieces, setUp):
                         return pieceName, moveDir, buildDir
     return tryToClimb(heights, pieces, setUp)
 
-ALL_PLAYERS = [randomPlayer, randomPlayerWithValidation, tryToClimb, buildAway]
+def defensivePlayer(heights, pieces, setUp):
+    """A defensive player that tries to stop the opponent winning."""
+    if setUp:
+        return tryToClimb(heights, pieces, setUp)
+    movesByHeight = {}
+    for pieceName in PIECES:
+        x, y = findPiecePos(pieces, pieceName)
+        movesByHeight[pieceName] = validMovesByHeight(heights, pieces, x, y)
+        # Check for any winning move.
+        for moveDir, dest in movesByHeight[pieceName][MAX_HEIGHT - 1]:
+            return pieceName, moveDir, DIRS[0]
+    # Check for opponent's winning move.
+    opponentCoordinates = getOpponentCoordinates(pieces)
+    for x, y in opponentCoordinates:
+        opponentsMoves = validMovesByHeight(heights, pieces, x, y)
+        # Try to prevent any winning move.
+        for _, opponentWinDest in opponentsMoves[MAX_HEIGHT - 1]:
+            for pieceName in PIECES:
+                x, y = findPiecePos(pieces, pieceName)
+                moveDirs = validMoves(heights, pieces, x, y)
+                for moveDir in moveDirs:
+                    buildDirs = validBuilds(heights, pieces, x + moveDir[0], y + moveDir[1], pieceName)
+                    for buildDir in buildDirs:
+                        if (x + moveDir[0] + buildDir[0], y + moveDir[1] + buildDir[1]) == opponentWinDest:
+                            return pieceName, moveDir, buildDir
+    return buildAway(heights, pieces, setUp)
+
+ALL_PLAYERS = [randomPlayer, randomPlayerWithValidation, tryToClimb, buildAway, defensivePlayer]
 
 ### Game Simulator Code ###
 
