@@ -5,6 +5,11 @@ from random import randrange, sample, shuffle
 from collections import Counter, defaultdict
 from itertools import combinations
 
+# Constants that can be changed when investigating players.
+NUMBER_OF_GAMES = 100
+OUTPUT_ALL_POSITIONS = False
+
+# Constants that probably shouldn't be changed.
 DIRS = [(1,1),(1,0),(1,-1),(0,1),(0,-1),(-1,1),(-1,0),(-1,-1)]
 PIECES = ['A', 'B']
 OPPONENT = 'O'
@@ -247,6 +252,10 @@ def playGame(players):
         turnNumber = 0
         while True:
             for playerIndex, player in enumerate(players):
+                if OUTPUT_ALL_POSITIONS:
+                    print('Turn {}, {} ({}) to move:'.format(turnNumber, players[playerIndex].__name__, ['ab', 'yz'][playerIndex]))
+                    displayBoard(heights, pieces)
+                    pass
                 pieceName, moveDir, buildDir = player(heights, convertPieces(playerIndex, pieces), False)
                 try:
                     x, y = findPiece(pieces, playerIndex, pieceName)
@@ -264,7 +273,7 @@ def playGame(players):
     finally:
         # Print end game position.
         loser = 1 - winner
-        print('{} {} beats {} {}'.format(players[winner].__name__, ['ab', 'yz'][winner], players[loser].__name__, ['ab', 'yz'][loser]))
+        print('{} ({}) beats {} ({})'.format(players[winner].__name__, ['ab', 'yz'][winner], players[loser].__name__, ['ab', 'yz'][loser]))
         displayBoard(heights, pieces)
         print('\n')
         pass
@@ -273,7 +282,7 @@ score = Counter()
 
 for playerPairing in combinations(range(len(ALL_PLAYERS)), 2):
     playerIndexes = list(playerPairing)
-    for gameIndex in range(100):
+    for gameIndex in range(NUMBER_OF_GAMES):
         shuffle(playerIndexes)
         players = [ALL_PLAYERS[playerIndexes[0]], ALL_PLAYERS[playerIndexes[1]]]
         
