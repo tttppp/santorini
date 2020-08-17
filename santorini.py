@@ -5,10 +5,11 @@ from random import randrange, sample, shuffle
 from collections import Counter, defaultdict
 from itertools import combinations
 import re
+from copy import deepcopy
 
 # Constants that can be changed when investigating players.
-NUMBER_OF_GAMES = 100
-OUTPUT_ALL_POSITIONS = False
+NUMBER_OF_GAMES = 1
+OUTPUT_ALL_POSITIONS = True
 
 # Constants that probably shouldn't be changed.
 DIRS = [(1,1),(1,0),(1,-1),(0,1),(0,-1),(-1,1),(-1,0),(-1,-1)]
@@ -54,7 +55,7 @@ def validMoves(heights, pieces, x, y):
             continue
         if pieces[destY][destX] != EMPTY:
             continue
-        if heights[destY][destX] > heights[y][x] + 2:
+        if heights[destY][destX] > heights[y][x] + 1:
             continue
         options.append(moveDir)
     return options
@@ -103,6 +104,17 @@ def validMovesByHeight(heights, pieces, x, y):
             if heights[destY][destX] == targetHeight:
                 out[targetHeight].append((moveDir, (destX, destY)))
     return out
+
+def getWinningMove(heights, pieces):
+    """Return a winning move if there is one, otherwise return None."""
+    movesByHeight = {}
+    for pieceName in PIECES:
+        x, y = findPiecePos(pieces, pieceName)
+        movesByHeight[pieceName] = validMovesByHeight(heights, pieces, x, y)
+        # Check for any winning move.
+        for moveDir, dest in movesByHeight[pieceName][MAX_HEIGHT - 1]:
+            return pieceName, moveDir, DIRS[0]
+    return None
 
 ### AI Algorithms ###
 
@@ -179,13 +191,9 @@ def defensivePlayer(heights, pieces, setUp):
     """A defensive player that tries to stop the opponent winning."""
     if setUp:
         return tryToClimb(heights, pieces, setUp)
-    movesByHeight = {}
-    for pieceName in PIECES:
-        x, y = findPiecePos(pieces, pieceName)
-        movesByHeight[pieceName] = validMovesByHeight(heights, pieces, x, y)
-        # Check for any winning move.
-        for moveDir, dest in movesByHeight[pieceName][MAX_HEIGHT - 1]:
-            return pieceName, moveDir, DIRS[0]
+    winningMove = getWinningMove(heights, pieces)
+    if winningMove != None:
+        return winningMove
     # Check for opponent's winning move.
     opponentCoordinates = getOpponentCoordinates(pieces)
     for x, y in opponentCoordinates:
@@ -201,6 +209,75 @@ def defensivePlayer(heights, pieces, setUp):
                         if (x + moveDir[0] + buildDir[0], y + moveDir[1] + buildDir[1]) == opponentWinDest:
                             return pieceName, moveDir, buildDir
     return buildAway(heights, pieces, setUp)
+
+def depthSearchPlayer(heights, pieces, setUp):
+    def swapPieces(pieces):
+        """Swap the A and B for the O and O."""
+        newPieces = {PIECES[0]: [OPPONENT], PIECES[1]: [OPPONENT], OPPONENT: list(PIECES)}
+        for y in range(5):
+            for x in range(5):
+                if pieces[y][x] != EMPTY:
+                    pieces[y][x] = newPieces[pieces[y][x]].pop()
+        return pieces
+    def getScore(heights, pieces, pieceName, moveDir, buildDir, remainingDepth, branchingFactor = 2):
+        """Evaluate the position and give it a score."""
+        x, y = findPiecePos(pieces, pieceName)
+        # Don't change original lists.
+        heights = deepcopy(heights)
+        pieces = deepcopy(pieces)
+        pieces[y][x] = EMPTY
+        pieces[y+moveDir[1]][x+moveDir[0]] = pieceName
+        heights[y+moveDir[1]+buildDir[1]][x+moveDir[0]+buildDir[0]] += 1
+        pieces = swapPieces(pieces)
+        # If can win then end search.
+        winningMove = getWinningMove(heights, pieces)
+        if winningMove != None:
+            return -1000
+        if remainingDepth == 0:
+            # To start with just implement the canWin bit.
+            positionScore = 0
+            for y in range(5):
+                for x in range(5):
+                    if pieces[y][x] in PIECES:
+                        positionScore -= 10 * heights[y][x] - abs(2-x) - abs(2-y)
+                    elif pieces[y][x] == OPPONENT:
+                        positionScore += 10 * heights[y][x] + abs(2-x) + abs(2-y)
+            return positionScore
+        bestScore = -1000
+        steps = 0
+        for pieceName in PIECES:
+            x, y = findPiecePos(pieces, pieceName)
+            movesByHeight = validMovesByHeight(heights, pieces, x, y)
+            # TODO Ensure we check at least some moves for each piece.
+            for targetHeight in reversed(range(MAX_HEIGHT)):
+                for moveDir, _ in movesByHeight[targetHeight]:
+                    steps += 1
+                    if steps >= branchingFactor:
+                        break
+                    buildDirs = validBuilds(heights, pieces, x + moveDir[0], y + moveDir[1], pieceName)
+                    for buildDir in buildDirs:
+                        score = 1-getScore(heights, pieces, pieceName, moveDir, buildDir, remainingDepth - 1)
+                        if score > bestScore:
+                            bestScore = score
+                if steps >= branchingFactor:
+                    break
+        return bestScore
+
+    if setUp:
+        return tryToClimb(heights, pieces, setUp)
+    bestScore = -1000
+    bestMove = defensivePlayer(heights, pieces, setUp)
+    for pieceName in PIECES:
+        x, y = findPiecePos(pieces, pieceName)
+        moveDirs = validMoves(heights, pieces, x, y)
+        for moveDir in moveDirs:
+            buildDirs = validBuilds(heights, pieces, x + moveDir[0], y + moveDir[1], pieceName)
+            for buildDir in buildDirs:
+                score = getScore(heights, pieces, pieceName, moveDir, buildDir, 4)
+                if score > bestScore:
+                    bestScore = score
+                    bestMove = (pieceName, moveDir, buildDir)
+    return bestMove
 
 def displayAIBoard(heights, pieces):
     """Display the board in a human readable way."""
@@ -226,22 +303,38 @@ def humanPlayer(heights, pieces, setUp):
         # Assuming something like '1,3' or '1 3' given.
         bits = re.split(r'[^0-9-]+', coordinateStr)
         return int(bits[0]), int(bits[1])
+    def getDirection(message):
+        numPadKey = ''
+        options = {'7': (-1,-1), '8': (0,-1), '9': (1,-1), '4': (-1, 0), '6': (1, 0), '1': (-1, 1), '2': (0, 1), '3': (1, 1)}
+        while numPadKey not in options.keys():
+            numPadKey = raw_input(message)
+        return options[numPadKey]
     try:
         displayAIBoard(heights, pieces)
         if setUp:
             return getCoords('Place piece at: ')
-        pieceName = None
-        while pieceName not in PIECES:
-            pieceName = raw_input('Move piece (A or B): ')
-        moveDir = getCoords('Move direction: ')
-        buildDir = getCoords('Build direction: ')
+        validMove = False
+        while not validMove:
+            pieceName = None
+            while pieceName not in PIECES:
+                pieceName = raw_input('Move piece (A or B): ')
+            moveDir = getDirection('Move direction: ')
+            buildDir = getDirection('Build direction: ')
+            x, y = findPiecePos(pieces, pieceName)
+            if moveDir not in validMoves(heights, pieces, x, y):
+                print('Invalid move direction')
+                continue
+            if buildDir not in validBuilds(heights, pieces, x + moveDir[0], y + moveDir[1], pieceName):
+                print('Invalid build direction')
+                continue
+            validMove = True
     except Exception as e:
         print(e)
         raise
     return pieceName, moveDir, buildDir
 
-ALL_PLAYERS = [randomPlayer, randomPlayerWithValidation, tryToClimb, buildAway, defensivePlayer]
-#ALL_PLAYERS = [buildAway, humanPlayer]
+ALL_PLAYERS = [randomPlayer, randomPlayerWithValidation, tryToClimb, buildAway, defensivePlayer, depthSearchPlayer]
+ALL_PLAYERS = [depthSearchPlayer, humanPlayer]
 
 ### Game Simulator Code ###
 
