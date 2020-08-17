@@ -17,9 +17,11 @@ class IllegalState(Exception):
     pass
 
 def unoccupiedSpaces(pieces):
+    """Return a list of the coordinates of unoccupied spaces."""
     return [(x,y) for x in range(5) for y in range(5) if pieces[y][x] == EMPTY]
 
 def findPiecePos(pieces, pieceName):
+    """Return the coordinates of a piece by name. If 'O' is given then just one of the two opponenets will be returned."""
     for y in range(5):
         for x in range(5):
             if pieces[y][x] == pieceName:
@@ -29,6 +31,7 @@ def findPiecePos(pieces, pieceName):
     raise IllegalState('Can\'t find piece on board.')
 
 def validMoves(heights, pieces, x, y):
+    """Return a list of the directions that are valid for moving."""
     options = []
     for moveDir in DIRS:
         destX, destY = x + moveDir[0], y + moveDir[1]
@@ -42,6 +45,7 @@ def validMoves(heights, pieces, x, y):
     return options
 
 def validBuilds(heights, pieces, x, y, pieceName):
+    """Return a list of the directions that are valid for building."""
     options = []
     for buildDir in DIRS:
         destX, destY = x + buildDir[0], y + buildDir[1]
@@ -54,14 +58,47 @@ def validBuilds(heights, pieces, x, y, pieceName):
         options.append(buildDir)
     return options
 
+def adjacentPieces(pieces, x, y):
+    """Return a list of coordinates adjacent to a location that contain pieces."""
+    out = []
+    for moveDir in DIRS:
+        destX, destY = x + moveDir[0], y + moveDir[1]
+        if destX < 0 or destX > 4 or destY < 0 or destY > 4:
+            continue
+        if pieces[destY][destX] != EMPTY:
+            out.append((destX, destY))
+    return out
+
+def validMovesByHeight(heights, pieces, x, y):
+    """Return a map from a height to a list of the options to get to that height.
+    
+    Each entry in the return list will have the direction and the coordinates - for example:
+        {
+            # height: [(direction, destination), ...]
+            0: [((1,0), (2,3)), ((1,1), (2,4))],
+            2: [(-1, 0), (0,3)]
+        }"""
+    out = defaultdict(list)
+    for targetHeight in reversed(range(MAX_HEIGHT)):
+        if heights[y][x] < targetHeight - 1:
+            continue
+        moveDirs = validMoves(heights, pieces, x, y)
+        for moveDir in moveDirs:
+            destX, destY = x + moveDir[0], y + moveDir[1]
+            if heights[destY][destX] == targetHeight:
+                out[targetHeight].append((moveDir, (destX, destY)))
+    return out
+
 ### AI Algorithms ###
 
 def randomPlayer(heights, pieces, setUp):
+    """A player that tries to make all moves at random, without even check they are valid."""
     if setUp:
         return randrange(5), randrange(5)
     return sample(PIECES, 1)[0], sample(DIRS, 1)[0], sample(DIRS, 1)[0]
 
 def randomPlayerWithValidation(heights, pieces, setUp):
+    """A player that tries to move at random, but which only picks from valid moves."""
     if setUp:
         return sample(unoccupiedSpaces(pieces), 1)[0]
     pieceNames = list(PIECES)
@@ -77,7 +114,8 @@ def randomPlayerWithValidation(heights, pieces, setUp):
     # No valid moves.
     return None, None, None
 
-def myGreatPlayer(heights, pieces, setUp):
+def tryToClimb(heights, pieces, setUp):
+    """A player that tries to move to the highest space available. It also tries to start near the middle of the board."""
     if setUp:
         if pieces[2][2] == EMPTY:
             return 2, 2
@@ -86,8 +124,7 @@ def myGreatPlayer(heights, pieces, setUp):
             dest = sample(unoccupiedSpaces(pieces), 1)[0]
         return dest
     for targetHeight in reversed(range(MAX_HEIGHT)):
-        pieceNames = list(PIECES)
-        for pieceName in pieceNames:
+        for pieceName in PIECES:
             x, y = findPiecePos(pieces, pieceName)
             if heights[y][x] < targetHeight - 1:
                 continue
@@ -104,7 +141,26 @@ def myGreatPlayer(heights, pieces, setUp):
                     return pieceName, moveDir, buildDirs[0]
     return randomPlayerWithValidation(heights, pieces, setUp)
 
-ALL_PLAYERS = [randomPlayer, randomPlayerWithValidation, myGreatPlayer]
+def buildAway(heights, pieces, setUp):
+    """A player that tries to climb and that tries to build where the opponent can't climb to."""
+    if setUp:
+        return tryToClimb(heights, pieces, setUp)
+    for targetHeight in reversed(range(MAX_HEIGHT)):
+        for pieceName in PIECES:
+            x, y = findPiecePos(pieces, pieceName)
+            movesByHeight = validMovesByHeight(heights, pieces, x, y)
+            for moveDir, dest in movesByHeight[targetHeight]:
+                buildDirs = validBuilds(heights, pieces, dest[0], dest[1], pieceName)
+                # Don't worry about the build direction if we've won.
+                if heights[dest[1]][dest[0]] == MAX_HEIGHT - 1:
+                    return pieceName, moveDir, DIRS[0]
+                for buildDir in buildDirs:
+                    buildDestX, buildDestY = dest[0] + buildDir[0], dest[1] + buildDir[1]
+                    if 'O' not in adjacentPieces(pieces, buildDestX, buildDestY):
+                        return pieceName, moveDir, buildDir
+    return tryToClimb(heights, pieces, setUp)
+
+ALL_PLAYERS = [randomPlayer, randomPlayerWithValidation, tryToClimb, buildAway]
 
 ### Game Simulator Code ###
 
@@ -112,7 +168,7 @@ class IllegalMove(Exception):
     pass
 
 def displayBoard(heights, pieces):
-    print('+' + '-'*15 + '+')
+    print('+-0--1--2--3--4-+')
     for y in range(5):
         lines = defaultdict(str)
         for x in range(5):
@@ -121,9 +177,11 @@ def displayBoard(heights, pieces):
             lines[0] += heightChar * 3
             lines[1] += heightChar  + pieceChar + heightChar
             lines[2] += heightChar * 3
+        borders = '|{}|'.format(y)
         for i in range(3):
-            print('|' + lines[i] + '|')
-    print('+' + '-'*15 + '+\n')
+            borderChar = borders[i]
+            print(borderChar + lines[i] + borderChar)
+    print('+-0--1--2--3--4-+')
             
 
 def convertPieces(playerIndex, pieces):
@@ -149,14 +207,14 @@ def findPiece(pieces, playerIndex, pieceName):
 
 def move(heights, pieces, x, y, moveDir):
     piece = pieces[y][x]
-    pieces[y][x] = EMPTY
     destX, destY = x + moveDir[0], y + moveDir[1]
     if destX < 0 or destX > 4 or destY < 0 or destY > 4:
-        raise IllegalMove('Trying to move off board')
+        raise IllegalMove('Trying to move off board. {} tried to move to {}'.format((x, y), (destX, destY)))
     if pieces[destY][destX] != EMPTY:
-        raise IllegalMove('Destination not empty')
+        raise IllegalMove('Destination not empty. {} tried to move to {}'.format((x, y), (destX, destY)))
     if heights[destY][destX] > heights[y][x] + 2:
-        raise IllegalMove('Trying to jump too high')
+        raise IllegalMove('Trying to jump too high. {} tried to move to {}'.format((x, y), (destX, destY)))
+    pieces[y][x] = EMPTY
     pieces[destY][destX] = piece
     return destX, destY
 
@@ -165,7 +223,7 @@ def build(heights, pieces, x, y, buildDir):
     if destX < 0 or destX > 4 or destY < 0 or destY > 4:
         raise IllegalMove('Trying to build off board')
     if pieces[destY][destX] != EMPTY:
-        raise IllegalMove('Need empty destination to build')
+        raise IllegalMove('Need empty destination to build. Actually ({}, {}) had {}'.format(destX, destY, pieces[destY][destX]))
     if heights[destY][destX] == MAX_HEIGHT:
         raise IllegalMove('Space already at max height')
     heights[destY][destX] += 1
@@ -174,13 +232,15 @@ def playGame(players):
     heights = [[0] * 5 for i in range(5)]
     pieces = [[EMPTY] * 5 for i in range(5)]
     
+    winner = None
     try:
         # Place pieces on the board.
         for playerIndex, player in enumerate(players):
             for pieceNumber in range(2):
                 x, y = player(heights, convertPieces(playerIndex, pieces), True)
                 if pieces[y][x] != EMPTY:
-                    return 1 - playerIndex
+                    winner = 1 - playerIndex
+                    return winner
                 pieces[y][x] = (playerIndex, pieceNumber)
         
         # Play the game (the AI player can pick a piece to move, a move direction and a build direction).
@@ -192,15 +252,21 @@ def playGame(players):
                     x, y = findPiece(pieces, playerIndex, pieceName)
                     x, y = move(heights, pieces, x, y, moveDir)
                     if heights[y][x] == MAX_HEIGHT - 1:
-                        return playerIndex
+                        winner = playerIndex
+                        return winner
                     build(heights, pieces, x, y, buildDir)
-                except IllegalMove:
-                    return 1 - playerIndex
+                except IllegalMove as e:
+                    print(e.args[0])
+                    winner = 1 - playerIndex
+                    return winner
             turnNumber += 1
         return 0
     finally:
         # Print end game position.
+        loser = 1 - winner
+        print('{} {} beats {} {}'.format(players[winner].__name__, ['ab', 'yz'][winner], players[loser].__name__, ['ab', 'yz'][loser]))
         displayBoard(heights, pieces)
+        print('\n')
         pass
 
 score = Counter()
