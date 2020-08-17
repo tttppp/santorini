@@ -4,6 +4,7 @@
 from random import randrange, sample, shuffle
 from collections import Counter, defaultdict
 from itertools import combinations
+import re
 
 # Constants that can be changed when investigating players.
 NUMBER_OF_GAMES = 100
@@ -201,14 +202,54 @@ def defensivePlayer(heights, pieces, setUp):
                             return pieceName, moveDir, buildDir
     return buildAway(heights, pieces, setUp)
 
+def displayAIBoard(heights, pieces):
+    """Display the board in a human readable way."""
+    print('+-0--1--2--3--4-+')
+    for y in range(5):
+        lines = defaultdict(str)
+        for x in range(5):
+            heightChar = ' .+#@'[heights[y][x]]
+            pieceChar = {EMPTY: EMPTY, 'A': 'A', 'B': 'B', 'O': 'O'}[pieces[y][x]]
+            lines[0] += heightChar * 3
+            lines[1] += heightChar  + pieceChar + heightChar
+            lines[2] += heightChar * 3
+        borders = '|{}|'.format(y)
+        for i in range(3):
+            borderChar = borders[i]
+            print(borderChar + lines[i] + borderChar)
+    print('+-0--1--2--3--4-+')
+
+def humanPlayer(heights, pieces, setUp):
+    """A human player using raw_input."""
+    def getCoords(message):
+        coordinateStr = raw_input(message)
+        # Assuming something like '1,3' or '1 3' given.
+        bits = re.split(r'[^0-9-]+', coordinateStr)
+        return int(bits[0]), int(bits[1])
+    try:
+        displayAIBoard(heights, pieces)
+        if setUp:
+            return getCoords('Place piece at: ')
+        pieceName = None
+        while pieceName not in PIECES:
+            pieceName = raw_input('Move piece (A or B): ')
+        moveDir = getCoords('Move direction: ')
+        buildDir = getCoords('Build direction: ')
+    except Exception as e:
+        print(e)
+        raise
+    return pieceName, moveDir, buildDir
+
 ALL_PLAYERS = [randomPlayer, randomPlayerWithValidation, tryToClimb, buildAway, defensivePlayer]
+#ALL_PLAYERS = [buildAway, humanPlayer]
 
 ### Game Simulator Code ###
 
 class IllegalMove(Exception):
-    pass
+    pass            
 
 def displayBoard(heights, pieces):
+    """Display the board in a human readable way."""
     print('+-0--1--2--3--4-+')
     for y in range(5):
         lines = defaultdict(str)
@@ -223,7 +264,6 @@ def displayBoard(heights, pieces):
             borderChar = borders[i]
             print(borderChar + lines[i] + borderChar)
     print('+-0--1--2--3--4-+')
-            
 
 def convertPieces(playerIndex, pieces):
     outPieces = [[] for i in range(5)]
@@ -307,6 +347,8 @@ def playGame(players):
             turnNumber += 1
         return 0
     finally:
+        if winner == None:
+            raise
         # Print end game position.
         loser = 1 - winner
         print('{} ({}) beats {} ({})'.format(players[winner].__name__, ['ab', 'yz'][winner], players[loser].__name__, ['ab', 'yz'][loser]))
