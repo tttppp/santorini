@@ -8,7 +8,7 @@ import re
 from copy import deepcopy
 
 # Constants that can be changed when investigating players.
-NUMBER_OF_GAMES = 1
+NUMBER_OF_GAMES = 10
 OUTPUT_ALL_POSITIONS = True
 
 # Constants that probably shouldn't be changed.
@@ -219,7 +219,7 @@ def depthSearchPlayer(heights, pieces, setUp):
                 if pieces[y][x] != EMPTY:
                     pieces[y][x] = newPieces[pieces[y][x]].pop()
         return pieces
-    def getScore(heights, pieces, pieceName, moveDir, buildDir, remainingDepth, branchingFactor = 2):
+    def getScore(heights, pieces, pieceName, moveDir, buildDir, remainingDepth, branchingFactor):
         """Evaluate the position and give it a score."""
         x, y = findPiecePos(pieces, pieceName)
         # Don't change original lists.
@@ -256,7 +256,7 @@ def depthSearchPlayer(heights, pieces, setUp):
                         break
                     buildDirs = validBuilds(heights, pieces, x + moveDir[0], y + moveDir[1], pieceName)
                     for buildDir in buildDirs:
-                        score = 1-getScore(heights, pieces, pieceName, moveDir, buildDir, remainingDepth - 1)
+                        score = getScore(heights, pieces, pieceName, moveDir, buildDir, remainingDepth - 1, max(1, branchingFactor - 1))
                         if score > bestScore:
                             bestScore = score
                 if steps >= branchingFactor:
@@ -273,11 +273,80 @@ def depthSearchPlayer(heights, pieces, setUp):
         for moveDir in moveDirs:
             buildDirs = validBuilds(heights, pieces, x + moveDir[0], y + moveDir[1], pieceName)
             for buildDir in buildDirs:
-                score = getScore(heights, pieces, pieceName, moveDir, buildDir, 4)
+                score = getScore(heights, pieces, pieceName, moveDir, buildDir, 5, 9)
                 if score > bestScore:
                     bestScore = score
                     bestMove = (pieceName, moveDir, buildDir)
     return bestMove
+
+def depthSearchPlayerB(heights, pieces, setUp):
+    def swapPieces(pieces):
+        """Swap the A and B for the O and O."""
+        newPieces = {PIECES[0]: [OPPONENT], PIECES[1]: [OPPONENT], OPPONENT: list(PIECES)}
+        for y in range(5):
+            for x in range(5):
+                if pieces[y][x] != EMPTY:
+                    pieces[y][x] = newPieces[pieces[y][x]].pop()
+        return pieces
+    def getScore(heights, pieces, pieceName, moveDir, buildDir, remainingDepth, branchingFactor, maximiseScore):
+        """Evaluate the position and give it a score."""
+        x, y = findPiecePos(pieces, pieceName)
+        # Don't change original lists.
+        heights = deepcopy(heights)
+        pieces = deepcopy(pieces)
+        pieces[y][x] = EMPTY
+        pieces[y+moveDir[1]][x+moveDir[0]] = pieceName
+        heights[y+moveDir[1]+buildDir[1]][x+moveDir[0]+buildDir[0]] += 1
+        pieces = swapPieces(pieces)
+        # If can win then end search.
+        winningMove = getWinningMove(heights, pieces)
+        if winningMove != None:
+            return 1000 if maximiseScore else -1000
+        positionScore = 0
+        for y in range(5):
+            for x in range(5):
+                if pieces[y][x] in PIECES:
+                    positionScore -= 6 * heights[y][x] ** 2 - (4 - abs(2-x) - abs(2-y))
+                elif pieces[y][x] == OPPONENT:
+                    positionScore += 9 * heights[y][x] ** 2 - (4 - abs(2-x) - abs(2-y))
+        if remainingDepth == 0 or branchingFactor == 0:
+            return 500-positionScore if maximiseScore else 500+positionScore
+        bestScore = -1000 if maximiseScore else 1000
+        steps = 0
+        for pieceName in PIECES:
+            x, y = findPiecePos(pieces, pieceName)
+            movesByHeight = validMovesByHeight(heights, pieces, x, y)
+            # TODO Ensure we check at least some moves for each piece.
+            for targetHeight in reversed(range(MAX_HEIGHT)):
+                for moveDir, _ in movesByHeight[targetHeight]:
+                    if steps >= branchingFactor:
+                        break
+                    steps += 1
+                    buildDirs = validBuilds(heights, pieces, x + moveDir[0], y + moveDir[1], pieceName)
+                    for buildDir in buildDirs:
+                        score = getScore(heights, pieces, pieceName, moveDir, buildDir, remainingDepth - 1, branchingFactor - 1, maximiseScore)
+                        if score > bestScore and maximiseScore or score < bestScore and not maximiseScore:
+                            bestScore = score
+                if steps >= branchingFactor:
+                    break
+        return 0.1 * positionScore + bestScore
+
+    if setUp:
+        return tryToClimb(heights, pieces, setUp)
+    bestScore = -1000
+    bestMove = defensivePlayer(heights, pieces, setUp)
+    for pieceName in PIECES:
+        x, y = findPiecePos(pieces, pieceName)
+        moveDirs = validMoves(heights, pieces, x, y)
+        for moveDir in moveDirs:
+            buildDirs = validBuilds(heights, pieces, x + moveDir[0], y + moveDir[1], pieceName)
+            for buildDir in buildDirs:
+                score = getScore(heights, pieces, pieceName, moveDir, buildDir, 3, 9, True)
+                if score > bestScore:
+                    bestScore = score
+                    bestMove = (pieceName, moveDir, buildDir)
+    return bestMove
+
 
 def displayAIBoard(heights, pieces):
     """Display the board in a human readable way."""
@@ -334,7 +403,8 @@ def humanPlayer(heights, pieces, setUp):
     return pieceName, moveDir, buildDir
 
 ALL_PLAYERS = [randomPlayer, randomPlayerWithValidation, tryToClimb, buildAway, defensivePlayer, depthSearchPlayer]
-ALL_PLAYERS = [depthSearchPlayer, humanPlayer]
+ALL_PLAYERS = [defensivePlayer, depthSearchPlayerB]
+#ALL_PLAYERS = [depthSearchPlayer, humanPlayer]
 
 ### Game Simulator Code ###
 
@@ -372,11 +442,12 @@ def convertPieces(playerIndex, pieces):
     return outPieces
 
 def findPiece(pieces, playerIndex, pieceName):
-    pieceIndex = PIECES.index(pieceName)
-    for y in range(5):
-        for x in range(5):
-            if pieces[y][x] == (playerIndex, pieceIndex):
-                return (x, y)
+    if pieceName in PIECES:
+        pieceIndex = PIECES.index(pieceName)
+        for y in range(5):
+            for x in range(5):
+                if pieces[y][x] == (playerIndex, pieceIndex):
+                    return (x, y)
     raise IllegalMove('Piece not found')
 
 def move(heights, pieces, x, y, moveDir):
@@ -441,10 +512,11 @@ def playGame(players):
         return 0
     finally:
         if winner == None:
-            raise
-        # Print end game position.
-        loser = 1 - winner
-        print('{} ({}) beats {} ({})'.format(players[winner].__name__, ['ab', 'yz'][winner], players[loser].__name__, ['ab', 'yz'][loser]))
+            print('No winner')
+        else:
+            # Print end game position.
+            loser = 1 - winner
+            print('{} ({}) beats {} ({})'.format(players[winner].__name__, ['ab', 'yz'][winner], players[loser].__name__, ['ab', 'yz'][loser]))
         displayBoard(heights, pieces)
         print('\n')
         pass
