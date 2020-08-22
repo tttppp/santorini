@@ -6,9 +6,10 @@ from collections import Counter, defaultdict
 from itertools import combinations
 import re
 from copy import deepcopy
+import time
 
 # Constants that can be changed when investigating players.
-NUMBER_OF_GAMES = 100
+NUMBER_OF_GAMES = 1
 OUTPUT_ALL_POSITIONS = True
 
 # Constants that probably shouldn't be changed.
@@ -116,6 +117,19 @@ def getWinningMove(heights, pieces):
             return pieceName, moveDir, DIRS[0]
     return None
 
+def swapPieces(pieces):
+    """Swap the A and B for the O and O."""
+    pieceNameMap = {PIECES[0]: [OPPONENT], PIECES[1]: [OPPONENT], OPPONENT: list(PIECES)}
+    newPieces = []
+    for y in range(5):
+        newPieces.append([])
+        for x in range(5):
+            if pieces[y][x] != EMPTY:
+                newPieces[y].append(pieceNameMap[pieces[y][x]].pop())
+            else:
+                newPieces[y].append(EMPTY)
+    return newPieces
+
 ### AI Algorithms ###
 
 def randomPlayer(heights, pieces, setUp):
@@ -211,14 +225,6 @@ def defensivePlayer(heights, pieces, setUp):
     return buildAway(heights, pieces, setUp)
 
 def depthSearchPlayer(heights, pieces, setUp):
-    def swapPieces(pieces):
-        """Swap the A and B for the O and O."""
-        newPieces = {PIECES[0]: [OPPONENT], PIECES[1]: [OPPONENT], OPPONENT: list(PIECES)}
-        for y in range(5):
-            for x in range(5):
-                if pieces[y][x] != EMPTY:
-                    pieces[y][x] = newPieces[pieces[y][x]].pop()
-        return pieces
     def getScore(heights, pieces, pieceName, moveDir, buildDir, remainingDepth, branchingFactor, maximiseScore):
         """Evaluate the position and give it a score."""
         x, y = findPiecePos(pieces, pieceName)
@@ -272,7 +278,8 @@ def depthSearchPlayer(heights, pieces, setUp):
         for moveDir in moveDirs:
             buildDirs = validBuilds(heights, pieces, x + moveDir[0], y + moveDir[1], pieceName)
             for buildDir in buildDirs:
-                score = getScore(heights, pieces, pieceName, moveDir, buildDir, 0, 9, False)
+                score = getScore(heights, pieces, pieceName, moveDir, buildDir, 2, 9, False)
+                print(pieceName, moveDir, buildDir, score, 'BEST' if score > bestScore else '')
                 if score > bestScore:
                     bestScore = score
                     bestMove = (pieceName, moveDir, buildDir)
@@ -280,6 +287,234 @@ def depthSearchPlayer(heights, pieces, setUp):
                         return bestMove
     return bestMove
 
+### Start Negamax Player ###
+
+def scoreIfEndGame(node):
+    heights, pieces, color = node
+    for y in range(5):
+        for x in range(5):
+            if heights[y][x] == MAX_HEIGHT - 1:
+                if pieces[y][x] == OPPONENT:
+                    return color * -1000
+                elif pieces[y][x] in PIECES:
+                    # This shouldn't be able to happen.
+                    return color * 1000
+    return 0
+
+def heuristic(node, score):
+    if score != 0:
+        return score
+    heights, pieces, color = node
+    positionScore = 0
+    for y in range(5):
+        for x in range(5):
+            if pieces[y][x] in PIECES:
+                positionScore += 100 * heights[y][x] ** 2 + (4 - abs(2-x) - abs(2-y))
+            elif pieces[y][x] == OPPONENT:
+                positionScore -= 100 * heights[y][x] ** 2 + (4 - abs(2-x) - abs(2-y))
+    return color * positionScore
+
+def moveThenSwapPieces(pieces, pieceX, pieceY, moveDir):
+    pieceNameMap = {PIECES[0]: [OPPONENT], PIECES[1]: [OPPONENT], OPPONENT: list(PIECES)}
+    newPieces = [[EMPTY] * 5 for i in range(5)]
+    for y in range(5):
+        for x in range(5):
+            if x != pieceX or y != pieceY:
+                if pieces[y][x] != EMPTY:
+                    newPieces[y][x] = pieceNameMap[pieces[y][x]].pop()
+    newPieces[pieceY + moveDir[1]][pieceX + moveDir[0]] = OPPONENT
+    return newPieces
+
+def moveDontSwapPieces(pieces, pieceX, pieceY, moveDir):
+    newPieces = [[EMPTY] * 5 for i in range(5)]
+    for y in range(5):
+        for x in range(5):
+            if x != pieceX or y != pieceY:
+                if pieces[y][x] != EMPTY:
+                    newPieces[y][x] = pieces[y][x]
+    newPieces[pieceY + moveDir[1]][pieceX + moveDir[0]] = pieces[pieceY][pieceX]
+    return newPieces
+
+def generateOrderedChildPositions(node):
+    heights, pieces, color = node
+    newColor = -color
+    childPositionsByHeight = defaultdict(list)
+    for pieceName in PIECES:
+        x, y = findPiecePos(pieces, pieceName)
+        movesByHeight = validMovesByHeight(heights, pieces, x, y)
+        for targetHeight in reversed(range(MAX_HEIGHT)):
+            for moveDir, _ in movesByHeight[targetHeight]:
+                pieceHeight = heights[y + moveDir[1]][x + moveDir[0]]
+                newPieces = moveThenSwapPieces(pieces, x, y, moveDir)
+                buildDirs = validBuilds(heights, pieces, x + moveDir[0], y + moveDir[1], pieceName)
+                for buildDir in buildDirs:
+                    newHeights = deepcopy(heights)
+                    newHeights[y + moveDir[1] + buildDir[1]][x + moveDir[0] + buildDir[0]] += 1
+                    childPositionsByHeight[pieceHeight].append((newHeights, newPieces, newColor))
+    orderedChildren = []
+    for height in reversed(sorted(childPositionsByHeight.keys())):
+        orderedChildren += childPositionsByHeight[height]
+    return orderedChildren
+
+def negamax(node, depth, alpha, beta, color):
+    heights, pieces, color = node
+    score = scoreIfEndGame(node)
+    if depth == 0 or score != 0:
+        return color * heuristic(node, score)
+    childNodes = generateOrderedChildPositions(node)
+    value = -1000
+    for child in childNodes:
+        value = max(value, -negamax(child, depth - 1, -beta, -alpha, -color))
+        alpha = max(alpha, value)
+        if alpha >= beta:
+            break
+    return value
+
+def negamaxPlayer(heights, pieces, setUp, startDepth=3):
+    # node is (heights, pieces, color)
+    
+    # AI entry point.
+    if setUp:
+        return tryToClimb(heights, pieces, setUp)
+    # Check for instant win.
+    winningMove = getWinningMove(heights, pieces)
+    if winningMove != None:
+        return winningMove
+    # Check value of all moves.
+    bestScore = -1000
+    bestMove = defensivePlayer(heights, pieces, setUp)
+    for pieceName in PIECES:
+        x, y = findPiecePos(pieces, pieceName)
+        moveDirs = validMoves(heights, pieces, x, y)
+        for moveDir in moveDirs:
+            newPieces = moveThenSwapPieces(pieces, x, y, moveDir)
+            buildDirs = validBuilds(heights, pieces, x + moveDir[0], y + moveDir[1], pieceName)
+            for buildDir in buildDirs:
+                newHeights = deepcopy(heights)
+                newHeights[y + moveDir[1] + buildDir[1]][x + moveDir[0] + buildDir[0]] += 1
+                rootNode = (newHeights, newPieces, -1)
+                score = -negamax(rootNode, startDepth, -1000, 1000, 1)
+                if score > bestScore:
+                    bestScore = score
+                    bestMove = (pieceName, moveDir, buildDir)
+                    if bestScore >= 1000:
+                        return bestMove
+    return bestMove
+
+### Start Time Limited Negamax ###
+
+def timeLimitedNegamax(node, depth, alpha, beta, color):
+    startTime = time.time()
+    heights, pieces, color = node
+    score = scoreIfEndGame(node)
+    if depth == 0 or score != 0:
+        return color * heuristic(node, score)
+    childNodes = generateOrderedChildPositions(node)
+    value = -1000
+    for child in childNodes:
+        value = max(value, -timeLimitedNegamax(child, depth - 1, -beta, -alpha, -color))
+        alpha = max(alpha, value)
+        if alpha >= beta:
+            break
+        if time.time() > startTime + (10 ** depth) * 0.000008:
+            break
+    return value
+
+def timeLimitedNegamaxPlayer(heights, pieces, setUp, startDepth=4):
+    # node is (heights, pieces, color)
+    
+    # AI entry point.
+    if setUp:
+        return tryToClimb(heights, pieces, setUp)
+    # Check for instant win.
+    winningMove = getWinningMove(heights, pieces)
+    if winningMove != None:
+        return winningMove
+    # Check value of all moves.
+    bestScore = -1000
+    bestMove = defensivePlayer(heights, pieces, setUp)
+    for pieceName in PIECES:
+        x, y = findPiecePos(pieces, pieceName)
+        moveDirs = validMoves(heights, pieces, x, y)
+        for moveDir in moveDirs:
+            newPieces = moveThenSwapPieces(pieces, x, y, moveDir)
+            buildDirs = validBuilds(heights, pieces, x + moveDir[0], y + moveDir[1], pieceName)
+            for buildDir in buildDirs:
+                newHeights = deepcopy(heights)
+                newHeights[y + moveDir[1] + buildDir[1]][x + moveDir[0] + buildDir[0]] += 1
+                rootNode = (newHeights, newPieces, -1)
+                score = -timeLimitedNegamax(rootNode, startDepth, -1000, 1000, 1)
+                if score > bestScore:
+                    bestScore = score
+                    bestMove = (pieceName, moveDir, buildDir)
+                    if bestScore >= 1000:
+                        return bestMove
+    return bestMove
+
+### End Time Limited Negamax ###
+
+
+def montePlayer(heights, pieces, setUp):
+    def moveThenSwapPieces(pieces, pieceX, pieceY, moveDir):
+        pieceNameMap = {PIECES[0]: [OPPONENT], PIECES[1]: [OPPONENT], OPPONENT: list(PIECES)}
+        newPieces = [[EMPTY] * 5 for i in range(5)]
+        for y in range(5):
+            for x in range(5):
+                if x != pieceX or y != pieceY:
+                    if pieces[y][x] != EMPTY:
+                        newPieces[y][x] = pieceNameMap[pieces[y][x]].pop()
+        newPieces[pieceY + moveDir[1]][pieceX + moveDir[0]] = OPPONENT
+        return newPieces
+    
+    def simulate(heights, pieces, simulations):
+        score = 0
+        for i in range(simulations):
+            newHeights = deepcopy(heights)
+            newPieces = deepcopy(pieces)
+            turnNumber = 0
+            finished = False
+            while not finished:
+                for playerIndex in range(2):
+                    pieceName, moveDir, buildDir = defensivePlayer(newHeights, newPieces, False)
+                    if pieceName == None:
+                        score -= (1 - 2 * playerIndex) / (turnNumber + 1.0)
+                        finished = True
+                        break
+                    x, y = findPiecePos(newPieces, pieceName)
+                    newPieces[y][x] = EMPTY
+                    newPieces[y + moveDir[1]][x + moveDir[0]] = pieceName
+                    if newHeights[y][x] == MAX_HEIGHT - 1:
+                        score -= (1 - 2 * playerIndex) / (turnNumber + 1.0)
+                        finished = True
+                        break
+                    newHeights[y + moveDir[1] + buildDir[1]][x + moveDir[0] + buildDir[0]] += 1
+                    newPieces = swapPieces(newPieces)
+                    turnNumber += 1
+        return score
+    
+    if setUp:
+        return tryToClimb(heights, pieces, setUp)
+    # Check for instant win.
+    winningMove = getWinningMove(heights, pieces)
+    if winningMove != None:
+        return winningMove
+    # Check value of all moves.
+    bestScore = -1000
+    bestMove = defensivePlayer(heights, pieces, setUp)
+    for pieceName in PIECES:
+        x, y = findPiecePos(pieces, pieceName)
+        moveDirs = validMoves(heights, pieces, x, y)
+        for moveDir in moveDirs:
+            newPieces = moveThenSwapPieces(pieces, x, y, moveDir)
+            buildDirs = validBuilds(heights, pieces, x + moveDir[0], y + moveDir[1], pieceName)
+            for buildDir in buildDirs:
+                newHeights = deepcopy(heights)
+                newHeights[y + moveDir[1] + buildDir[1]][x + moveDir[0] + buildDir[0]] += 1
+                score = simulate(newHeights, newPieces, 10)
+                if score > bestScore:
+                    bestScore = score
+                    bestMove = (pieceName, moveDir, buildDir)
+    return bestMove    
 
 def displayAIBoard(heights, pieces):
     """Display the board in a human readable way."""
@@ -337,7 +572,11 @@ def humanPlayer(heights, pieces, setUp):
 
 ALL_PLAYERS = [randomPlayer, randomPlayerWithValidation, tryToClimb, buildAway, defensivePlayer, depthSearchPlayer]
 ALL_PLAYERS = [defensivePlayer, depthSearchPlayer]
-#ALL_PLAYERS = [depthSearchPlayer, humanPlayer]
+ALL_PLAYERS = [defensivePlayer, timeLimitedNegamaxPlayer]
+ALL_PLAYERS = [timeLimitedNegamaxPlayer, negamaxPlayer]
+#ALL_PLAYERS = [defensivePlayer, montePlayer]
+#ALL_PLAYERS = [montePlayer, humanPlayer]
+#ALL_PLAYERS = [timeLimitedNegamaxPlayer, humanPlayer]
 
 ### Game Simulator Code ###
 
@@ -429,7 +668,7 @@ def playGame(players):
                     print('Turn {}, {} ({}) to move:'.format(turnNumber, players[playerIndex].__name__, ['ab', 'yz'][playerIndex]))
                     displayBoard(heights, pieces)
                     pass
-                pieceName, moveDir, buildDir = player(heights, convertPieces(playerIndex, pieces), False)
+                pieceName, moveDir, buildDir = player(deepcopy(heights), convertPieces(playerIndex, deepcopy(pieces)), False)
                 try:
                     x, y = findPiece(pieces, playerIndex, pieceName)
                     x, y = move(heights, pieces, x, y, moveDir)
@@ -454,17 +693,23 @@ def playGame(players):
         print('\n')
         pass
 
-score = Counter()
+def main():
+    score = Counter()
+    
+    for playerPairing in combinations(range(len(ALL_PLAYERS)), 2):
+        playerIndexes = list(playerPairing)
+        for gameIndex in range(NUMBER_OF_GAMES):
+            shuffle(playerIndexes)
+            players = [ALL_PLAYERS[playerIndexes[0]], ALL_PLAYERS[playerIndexes[1]]]
+            
+            winner = playGame(players)
+            loser = 1 - winner
+            score[(playerIndexes[winner], playerIndexes[loser])] += 1
+            print('Score now {} to {}'.format(score[(playerIndexes[winner], playerIndexes[loser])], score[(playerIndexes[loser], playerIndexes[winner])]))
 
-for playerPairing in combinations(range(len(ALL_PLAYERS)), 2):
-    playerIndexes = list(playerPairing)
-    for gameIndex in range(NUMBER_OF_GAMES):
-        shuffle(playerIndexes)
-        players = [ALL_PLAYERS[playerIndexes[0]], ALL_PLAYERS[playerIndexes[1]]]
-        
-        winner = playGame(players)
-        loser = 1 - winner
-        score[(playerIndexes[winner], playerIndexes[loser])] += 1
+    
+    for playerIndexes, score in score.most_common():
+        print('{:5d} {} beats {}'.format(score, ALL_PLAYERS[playerIndexes[0]].__name__, ALL_PLAYERS[playerIndexes[1]].__name__))
 
-for playerIndexes, score in score.most_common():
-    print('{:5d} {} beats {}'.format(score, ALL_PLAYERS[playerIndexes[0]].__name__, ALL_PLAYERS[playerIndexes[1]].__name__))
+if __name__ == '__main__':
+    main()
